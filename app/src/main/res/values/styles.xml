@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.ToneStepper" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">#80CBC4</item>
+        <item name="colorPrimaryVariant">#4F9A94</item>
+        <item name="colorSecondary">#B2DFDB</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>
