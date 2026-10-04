@@ -1,53 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:gravity="center"
+        android:padding="28dp">
 
         <TextView
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Tone Stepper"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:gravity="center" />
 
         <TextView
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Sequenza: −2, −1, 0, +1, +2, +1, 0, −1 semitoni"
-            android:textSize="15sp" />
+            android:text="Stereo Random"
+            android:textSize="16sp"
+            android:gravity="center" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="−2  •  −1  •  0  •  +1  •  +2  •  +1  •  0  •  −1"
+            android:textSize="14sp"
+            android:gravity="center" />
 
         <EditText
             android:id="@+id/frequency"
-            android:layout_width="match_parent"
+            android:layout_width="260dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="28dp"
             android:hint="Frequenza centrale (Hz)"
             android:inputType="numberDecimal"
-            android:text="15000" />
+            android:text="15000"
+            android:gravity="center" />
 
         <EditText
             android:id="@+id/duration"
-            android:layout_width="match_parent"
+            android:layout_width="260dp"
             android:layout_height="wrap_content"
-            android:hint="Durata di ogni tono (secondi)"
+            android:layout_marginTop="8dp"
+            android:hint="Durata tono (ms)"
             android:inputType="numberDecimal"
-            android:text="10" />
+            android:text="500"
+            android:gravity="center" />
 
         <TextView
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Volume interno (partenza bassa consigliata)" />
+            android:layout_marginTop="20dp"
+            android:text="Volume interno"
+            android:textSize="15sp" />
 
         <SeekBar
             android:id="@+id/volume"
-            android:layout_width="match_parent"
+            android:layout_width="280dp"
             android:layout_height="wrap_content"
             android:max="100"
             android:progress="10" />
@@ -58,26 +77,32 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="22dp"
             android:text="Pronto"
-            android:textSize="18sp" />
+            android:textSize="19sp"
+            android:textStyle="bold"
+            android:gravity="center" />
 
         <Button
             android:id="@+id/start"
-            android:layout_width="match_parent"
+            android:layout_width="260dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="24dp"
             android:text="START" />
 
         <Button
             android:id="@+id/stop"
-            android:layout_width="match_parent"
+            android:layout_width="260dp"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:text="STOP" />
 
         <TextView
-            android:layout_width="match_parent"
+            android:layout_width="280dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Nota: 15–17 kHz sono frequenze molto alte. Inizia a volume basso, soprattutto con cuffie/auricolari."
-            android:textSize="13sp" />
+            android:layout_marginTop="22dp"
+            android:text="Ogni tono viene riprodotto casualmente a sinistra o a destra. Usa un volume basso, soprattutto con cuffie o auricolari."
+            android:textSize="12sp"
+            android:gravity="center" />
+
     </LinearLayout>
+
 </ScrollView>
