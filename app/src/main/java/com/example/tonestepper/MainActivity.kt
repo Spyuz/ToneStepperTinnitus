@@ -1,296 +1,167 @@
 package com.example.tonestepper
 
 import android.Manifest
-import android.content.*
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.widget.*
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
-    private lateinit var prefs: android.content.SharedPreferences
+    private val prefs by lazy {
+        getSharedPreferences("ToneStepper", MODE_PRIVATE)
+    }
+
+    private lateinit var frequency: EditText
+    private lateinit var interval: EditText
+    private lateinit var duration: EditText
+    private lateinit var ears: RadioGroup
+    private lateinit var toneVolume: SeekBar
+    private lateinit var noiseVolume: SeekBar
+    private lateinit var noiseType: Spinner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        prefs = getSharedPreferences("ToneStepperPrefs", MODE_PRIVATE)
-
         setContentView(R.layout.activity_main)
 
-        requestNotificationPermission()
-        setupInterface()
+        frequency = findViewById(R.id.frequency)
+        interval = findViewById(R.id.interval)
+        duration = findViewById(R.id.duration)
+        ears = findViewById(R.id.earSelection)
+        toneVolume = findViewById(R.id.toneVolume)
+        noiseVolume = findViewById(R.id.noiseVolume)
+        noiseType = findViewById(R.id.noiseType)
 
-        if (!prefs.getBoolean("disclaimerAccepted", false)) {
-            showDisclaimer()
+        frequency.setText(prefs.getString("frequency", "15000"))
+        interval.setText(prefs.getString("interval", "500"))
+        duration.setText(prefs.getString("duration", "10"))
+
+        when (prefs.getString("earMode", "both")) {
+            "left" -> ears.check(R.id.earLeft)
+            "right" -> ears.check(R.id.earRight)
+            else -> ears.check(R.id.earBoth)
         }
-    }
 
-    private fun requestNotificationPermission() {
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                100
-            )
-        }
-    }
+        toneVolume.progress = prefs.getInt("toneVolume", 20)
+        noiseVolume.progress = prefs.getInt("noiseVolume", 10)
 
-    private fun setupInterface() {
-
-        val frequency = findViewById<EditText>(R.id.frequency)
-        val interval = findViewById<EditText>(R.id.interval)
-        val duration = findViewById<EditText>(R.id.duration)
-
-        val toneVolume = findViewById<SeekBar>(R.id.toneVolume)
-        val noiseVolume = findViewById<SeekBar>(R.id.noiseVolume)
-
-        val noiseType = findViewById<Spinner>(R.id.noiseType)
-
-        frequency.setText(
-            prefs.getFloat("frequency", 15000f).toString().removeSuffix(".0")
-        )
-
-        interval.setText(
-            prefs.getInt("interval", 500).toString()
-        )
-
-        duration.setText(
-            prefs.getFloat("duration", 0f).toString().removeSuffix(".0")
-        )
-
-        toneVolume.progress =
-            prefs.getInt("toneVolume", 10)
-
-        noiseVolume.progress =
-            prefs.getInt("noiseVolume", 5)
-
-        val noises = arrayOf(
-            "Nessuno",
-            "Bianco",
-            "Rosa",
-            "Marrone",
-            "Viola"
-        )
-
-        val adapter = ArrayAdapter(
+        val noises = listOf("Nessuno", "Bianco", "Rosa", "Marrone", "Violetto")
+        noiseType.adapter = ArrayAdapter(
             this,
-            android.R.layout.simple_spinner_item,
+            android.R.layout.simple_spinner_dropdown_item,
             noises
         )
+        noiseType.setSelection(prefs.getInt("noiseType", 0))
 
-        adapter.setDropDownViewResource(
-            android.R.layout.simple_spinner_dropdown_item
-        )
+        updateLabels()
 
-        noiseType.adapter = adapter
-
-        val savedNoise =
-            prefs.getString("noiseType", "Nessuno") ?: "Nessuno"
-
-        val savedPosition =
-            noises.indexOf(savedNoise).coerceAtLeast(0)
-
-        noiseType.setSelection(savedPosition)
-
-        frequency.liveChange {
-            val value =
-                frequency.text.toString().toFloatOrNull() ?: return@liveChange
-
-            prefs.edit()
-                .putFloat("frequency", value.coerceIn(100f, 20000f))
-                .apply()
+        ears.setOnCheckedChangeListener { _, id ->
+            val mode = when (id) {
+                R.id.earLeft -> "left"
+                R.id.earRight -> "right"
+                else -> "both"
+            }
+            prefs.edit().putString("earMode", mode).apply()
         }
 
-        interval.liveChange {
-            val value =
-                interval.text.toString().toIntOrNull() ?: return@liveChange
+        toneVolume.setOnSeekBarChangeListener(volumeListener("toneVolume"))
+        noiseVolume.setOnSeekBarChangeListener(volumeListener("noiseVolume"))
 
-            prefs.edit()
-                .putInt("interval", value.coerceIn(50, 60000))
-                .apply()
+        noiseType.onItemSelectedListener = object :
+            android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: android.view.View?,
+                position: Int,
+                id: Long
+            ) {
+                prefs.edit().putInt("noiseType", position).apply()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
-        duration.liveChange {
-            val value =
-                duration.text.toString().toFloatOrNull() ?: return@liveChange
+        findViewById<Button>(R.id.startButton).setOnClickListener {
+            if (!saveSettings()) return@setOnClickListener
 
-            prefs.edit()
-                .putFloat("duration", value.coerceAtLeast(0f))
-                .apply()
-        }
-
-        toneVolume.setOnSeekBarChangeListener(
-            simpleSeekListener {
-                prefs.edit()
-                    .putInt("toneVolume", toneVolume.progress)
-                    .apply()
-            }
-        )
-
-        noiseVolume.setOnSeekBarChangeListener(
-            simpleSeekListener {
-                prefs.edit()
-                    .putInt("noiseVolume", noiseVolume.progress)
-                    .apply()
-            }
-        )
-
-        noiseType.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: android.view.View?,
-                    position: Int,
-                    id: Long
-                ) {
-                    prefs.edit()
-                        .putString("noiseType", noises[position])
-                        .apply()
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    100
+                )
             }
 
-        findViewById<Button>(R.id.start).setOnClickListener {
-
-            saveCurrentValues(
-                frequency,
-                interval,
-                duration,
-                toneVolume,
-                noiseVolume,
-                noiseType
-            )
-
-            val intent =
-                Intent(this, AudioService::class.java)
-                    .setAction(AudioService.ACTION_START)
-
+            val intent = Intent(this, AudioService::class.java)
+                .setAction(AudioService.ACTION_START)
             ContextCompat.startForegroundService(this, intent)
         }
 
-        findViewById<Button>(R.id.stop).setOnClickListener {
-
-            val intent =
-                Intent(this, AudioService::class.java)
-                    .setAction(AudioService.ACTION_STOP)
-
-            startService(intent)
+        findViewById<Button>(R.id.stopButton).setOnClickListener {
+            stopService(Intent(this, AudioService::class.java))
         }
     }
 
-    private fun saveCurrentValues(
-        frequency: EditText,
-        interval: EditText,
-        duration: EditText,
-        toneVolume: SeekBar,
-        noiseVolume: SeekBar,
-        noiseType: Spinner
-    ) {
+    private fun volumeListener(key: String) =
+        object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(
+                bar: SeekBar?, value: Int, fromUser: Boolean
+            ) {
+                prefs.edit().putInt(key, value).apply()
+                updateLabels()
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        }
+
+    private fun updateLabels() {
+        findViewById<TextView>(R.id.toneVolumeLabel)
+            .text = "${toneVolume.progress}%"
+        findViewById<TextView>(R.id.noiseVolumeLabel)
+            .text = "${noiseVolume.progress}%"
+    }
+
+    private fun saveSettings(): Boolean {
+        val f = frequency.text.toString().toDoubleOrNull()
+        val i = interval.text.toString().toLongOrNull()
+        val d = duration.text.toString().toLongOrNull()
+
+        if (f == null || f !in 100.0..20000.0 ||
+            i == null || i !in 100L..10000L ||
+            d == null || d < 0L
+        ) {
+            Toast.makeText(
+                this,
+                "Controlla frequenza, intervallo e durata.",
+                Toast.LENGTH_LONG
+            ).show()
+            return false
+        }
+
+        val mode = when (ears.checkedRadioButtonId) {
+            R.id.earLeft -> "left"
+            R.id.earRight -> "right"
+            else -> "both"
+        }
 
         prefs.edit()
-            .putFloat(
-                "frequency",
-                frequency.text.toString().toFloatOrNull()
-                    ?.coerceIn(100f, 20000f) ?: 15000f
-            )
-            .putInt(
-                "interval",
-                interval.text.toString().toIntOrNull()
-                    ?.coerceIn(50, 60000) ?: 500
-            )
-            .putFloat(
-                "duration",
-                duration.text.toString().toFloatOrNull()
-                    ?.coerceAtLeast(0f) ?: 0f
-            )
+            .putString("frequency", f.toString())
+            .putString("interval", i.toString())
+            .putString("duration", d.toString())
+            .putString("earMode", mode)
             .putInt("toneVolume", toneVolume.progress)
             .putInt("noiseVolume", noiseVolume.progress)
-            .putString("noiseType", noiseType.selectedItem.toString())
+            .putInt("noiseType", noiseType.selectedItemPosition)
             .apply()
-    }
 
-    private fun showDisclaimer() {
-
-        AlertDialog.Builder(this)
-            .setTitle("Avvertenza")
-            .setMessage(
-                "Tone Stepper genera toni ad alta frequenza e rumori audio.\n\n" +
-                "L'app non è un dispositivo medico e non è destinata a " +
-                "diagnosticare, trattare o curare l'acufene o altre condizioni.\n\n" +
-                "Utilizza un volume basso e confortevole. Interrompi l'ascolto " +
-                "in caso di fastidio, dolore, peggioramento dell'acufene o " +
-                "altri sintomi.\n\n" +
-                "L'utilizzo dell'app non sostituisce il parere di un medico " +
-                "o di un professionista sanitario qualificato."
-            )
-            .setCancelable(false)
-            .setPositiveButton("HO LETTO E ACCETTO") { _, _ ->
-
-                prefs.edit()
-                    .putBoolean("disclaimerAccepted", true)
-                    .apply()
-            }
-            .show()
-    }
-
-    private fun EditText.liveChange(action: () -> Unit) {
-
-        addTextChangedListener(
-            object : TextWatcher {
-
-                override fun beforeTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    count: Int,
-                    after: Int
-                ) {}
-
-                override fun onTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    before: Int,
-                    count: Int
-                ) {
-                    action()
-                }
-
-                override fun afterTextChanged(s: Editable?) {}
-            }
-        )
-    }
-
-    private fun simpleSeekListener(
-        action: () -> Unit
-    ): SeekBar.OnSeekBarChangeListener {
-
-        return object : SeekBar.OnSeekBarChangeListener {
-
-            override fun onProgressChanged(
-                seekBar: SeekBar?,
-                progress: Int,
-                fromUser: Boolean
-            ) {
-                if (fromUser) action()
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        }
+        return true
     }
 }

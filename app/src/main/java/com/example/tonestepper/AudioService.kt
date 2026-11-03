@@ -1,583 +1,218 @@
 package com.example.tonestepper
 
-import android.app.*
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.media.*
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Build
 import android.os.IBinder
-import android.os.SystemClock
-import kotlin.math.*
+import androidx.core.app.NotificationCompat
+import kotlin.math.PI
+import kotlin.math.sin
 import kotlin.random.Random
 
 class AudioService : Service() {
 
     companion object {
-        const val ACTION_START = "START"
-        const val ACTION_STOP = "STOP"
-
-        private const val CHANNEL_ID = "ToneStepperAudio"
-        private const val NOTIFICATION_ID = 1001
+        const val ACTION_START = "com.example.tonestepper.START"
+        private const val CHANNEL_ID = "tone_stepper_audio"
+        private const val NOTIFICATION_ID = 501
+        private const val SAMPLE_RATE = 48000
     }
 
-    @Volatile
-    private var running = false
-
+    @Volatile private var running = false
+    private var audioTrack: AudioTrack? = null
     private var audioThread: Thread? = null
 
-    private val sampleRate = 48000
-
-    private val semitones =
-        intArrayOf(-2, -1, 0, 1, 2)
-
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
+    private val prefs by lazy {
+        getSharedPreferences("ToneStepper", MODE_PRIVATE)
     }
 
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int
-    ): Int {
+    override fun onBind(intent: Intent?): IBinder? = null
 
-        when (intent?.action) {
-
-            ACTION_STOP -> {
-                stopAudio()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
-
-            ACTION_START -> {
-
-                startAsForeground()
-
-                if (!running) {
-                    startAudio()
-                }
-            }
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_START && !running) {
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, notification())
+            running = true
+            audioThread = Thread { playAudio() }.also { it.start() }
         }
-
         return START_NOT_STICKY
     }
 
-    private fun startAsForeground() {
-
-        val openIntent =
-            Intent(this, MainActivity::class.java)
-
-        val pendingIntent =
-            PendingIntent.getActivity(
-                this,
-                0,
-                openIntent,
-                PendingIntent.FLAG_IMMUTABLE or
-                    PendingIntent.FLAG_UPDATE_CURRENT
-            )
-
-        val stopIntent =
-            Intent(this, AudioService::class.java)
-                .setAction(ACTION_STOP)
-
-        val stopPendingIntent =
-            PendingIntent.getService(
-                this,
-                1,
-                stopIntent,
-                PendingIntent.FLAG_IMMUTABLE or
-                    PendingIntent.FLAG_UPDATE_CURRENT
-            )
-
-        val notification =
-            Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Tone Stepper")
-                .setContentText("Riproduzione audio attiva")
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .addAction(
-                    android.R.drawable.ic_media_pause,
-                    "STOP",
-                    stopPendingIntent
-                )
-                .build()
-
-        if (Build.VERSION.SDK_INT >= 29) {
-
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-
-        } else {
-
-            startForeground(
-                NOTIFICATION_ID,
-                notification
-            )
-        }
-    }
-
-    private fun startAudio() {
-
-        running = true
-
-        val prefs =
-            getSharedPreferences(
-                "ToneStepperPrefs",
-                MODE_PRIVATE
-            )
-
-        audioThread = Thread {
-
-            val minBuffer =
-                AudioTrack.getMinBufferSize(
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_STEREO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
-
-            val track =
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(
-                                AudioAttributes.USAGE_MEDIA
-                            )
-                            .setContentType(
-                                AudioAttributes.CONTENT_TYPE_MUSIC
-                            )
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(
-                                AudioFormat.ENCODING_PCM_16BIT
-                            )
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(
-                                AudioFormat.CHANNEL_OUT_STEREO
-                            )
-                            .build()
-                    )
-                    .setBufferSizeInBytes(
-                        max(minBuffer, 16384)
-                    )
-                    .setTransferMode(
-                        AudioTrack.MODE_STREAM
-                    )
-                    .build()
-
-            val framesPerChunk = 512
-
-            val buffer =
-                ShortArray(framesPerChunk * 2)
-
-            var phase = 0.0
-
-            var pinkL = 0.0
-            var pinkR = 0.0
-
-            var brownL = 0.0
-            var brownR = 0.0
-
-            var previousWhiteL = 0.0
-            var previousWhiteR = 0.0
-
-            val sessionStart =
-                SystemClock.elapsedRealtime()
-
-            fun makeNoise(
-                type: String,
-                left: Boolean
-            ): Double {
-
-                if (type == "Nessuno")
-                    return 0.0
-
-                val white =
-                    Random.nextDouble(-1.0, 1.0)
-
-                return when (type) {
-
-                    "Bianco" -> white
-
-                    "Rosa" -> {
-
-                        if (left) {
-                            pinkL =
-                                0.98 * pinkL +
-                                0.02 * white
-
-                            (pinkL * 5.0)
-                                .coerceIn(-1.0, 1.0)
-
-                        } else {
-
-                            pinkR =
-                                0.98 * pinkR +
-                                0.02 * white
-
-                            (pinkR * 5.0)
-                                .coerceIn(-1.0, 1.0)
-                        }
-                    }
-
-                    "Marrone" -> {
-
-                        if (left) {
-
-                            brownL =
-                                (brownL + white * 0.02)
-                                    .coerceIn(-1.0, 1.0)
-
-                            brownL
-
-                        } else {
-
-                            brownR =
-                                (brownR + white * 0.02)
-                                    .coerceIn(-1.0, 1.0)
-
-                            brownR
-                        }
-                    }
-
-                    "Viola" -> {
-
-                        if (left) {
-
-                            val value =
-                                (white - previousWhiteL) * 0.7
-
-                            previousWhiteL = white
-
-                            value.coerceIn(-1.0, 1.0)
-
-                        } else {
-
-                            val value =
-                                (white - previousWhiteR) * 0.7
-
-                            previousWhiteR = white
-
-                            value.coerceIn(-1.0, 1.0)
-                        }
-                    }
-
-                    else -> 0.0
-                }
-            }
-
-            try {
-
-                track.play()
-
-                while (running) {
-
-                    /*
-                     * Questi valori vengono riletti a ogni tono.
-                     * Frequenza e intervallo quindi possono cambiare
-                     * senza STOP/START.
-                     */
-
-                    val center =
-                        prefs.getFloat(
-                            "frequency",
-                            15000f
-                        ).toDouble()
-                            .coerceIn(
-                                100.0,
-                                20000.0
-                            )
-
-                    val intervalMs =
-                        prefs.getInt(
-                            "interval",
-                            500
-                        ).coerceIn(
-                            50,
-                            60000
-                        )
-
-                    val durationMinutes =
-                        prefs.getFloat(
-                            "duration",
-                            0f
-                        ).toDouble()
-                            .coerceAtLeast(0.0)
-
-                    if (durationMinutes > 0.0) {
-
-                        val maxDuration =
-                            (durationMinutes *
-                                60000.0).toLong()
-
-                        if (
-                            SystemClock.elapsedRealtime() -
-                            sessionStart >= maxDuration
-                        ) {
-                            running = false
-                            break
-                        }
-                    }
-
-                    /*
-                     * Semitono completamente casuale.
-                     */
-
-                    val semi =
-                        semitones[
-                            Random.nextInt(
-                                semitones.size
-                            )
-                        ]
-
-                    val frequency =
-                        center *
-                        2.0.pow(
-                            semi / 12.0
-                        )
-
-                    /*
-                     * Canale indipendentemente casuale.
-                     */
-
-                    val leftChannel =
-                        Random.nextBoolean()
-
-                    val totalFrames =
-                        (
-                            intervalMs /
-                            1000.0 *
-                            sampleRate
-                        ).toLong()
-                            .coerceAtLeast(1)
-
-                    val fadeFrames =
-                        min(
-                            (0.020 * sampleRate)
-                                .toInt(),
-                            max(
-                                1,
-                                (totalFrames / 5)
-                                    .toInt()
-                            )
-                        )
-
-                    var produced = 0L
-
-                    while (
-                        produced < totalFrames &&
-                        running
-                    ) {
-
-                        /*
-                         * Volumi e rumore vengono riletti
-                         * a ogni buffer (~10 ms):
-                         * risposta praticamente immediata.
-                         */
-
-                        val toneAmp =
-                            (
-                                prefs.getInt(
-                                    "toneVolume",
-                                    10
-                                ) / 100.0
-                            ) * 0.30
-
-                        val noiseAmp =
-                            (
-                                prefs.getInt(
-                                    "noiseVolume",
-                                    5
-                                ) / 100.0
-                            ) * 0.20
-
-                        val noiseType =
-                            prefs.getString(
-                                "noiseType",
-                                "Nessuno"
-                            ) ?: "Nessuno"
-
-                        val frameCount =
-                            min(
-                                framesPerChunk.toLong(),
-                                totalFrames - produced
-                            ).toInt()
-
-                        for (i in 0 until frameCount) {
-
-                            val position =
-                                produced + i
-
-                            val edge =
-                                min(
-                                    position,
-                                    totalFrames -
-                                    1 -
-                                    position
-                                )
-
-                            val fade =
-                                if (edge < fadeFrames)
-                                    edge.toDouble() /
-                                    fadeFrames
-                                else
-                                    1.0
-
-                            val tone =
-                                sin(phase) *
-                                toneAmp *
-                                fade
-
-                            val noiseL =
-                                makeNoise(
-                                    noiseType,
-                                    true
-                                ) * noiseAmp
-
-                            val noiseR =
-                                makeNoise(
-                                    noiseType,
-                                    false
-                                ) * noiseAmp
-
-                            val left =
-                                noiseL +
-                                if (leftChannel)
-                                    tone
-                                else
-                                    0.0
-
-                            val right =
-                                noiseR +
-                                if (!leftChannel)
-                                    tone
-                                else
-                                    0.0
-
-                            val index = i * 2
-
-                            buffer[index] =
-                                (
-                                    left.coerceIn(
-                                        -1.0,
-                                        1.0
-                                    ) *
-                                    Short.MAX_VALUE
-                                ).toInt()
-                                    .toShort()
-
-                            buffer[index + 1] =
-                                (
-                                    right.coerceIn(
-                                        -1.0,
-                                        1.0
-                                    ) *
-                                    Short.MAX_VALUE
-                                ).toInt()
-                                    .toShort()
-
-                            phase +=
-                                2.0 *
-                                Math.PI *
-                                frequency /
-                                sampleRate
-
-                            if (
-                                phase >=
-                                2.0 * Math.PI
-                            ) {
-                                phase -=
-                                    2.0 *
-                                    Math.PI
-                            }
-                        }
-
-                        val written =
-                            track.write(
-                                buffer,
-                                0,
-                                frameCount * 2,
-                                AudioTrack.WRITE_BLOCKING
-                            )
-
-                        if (written < 0) {
-                            running = false
-                            break
-                        }
-
-                        produced += frameCount
-                    }
-                }
-
-            } catch (_: Exception) {
-
-                running = false
-
-            } finally {
-
-                try {
-                    track.pause()
-                    track.flush()
-                    track.stop()
-                } catch (_: Exception) {}
-
-                track.release()
-
-                running = false
-
-                stopForeground(
-                    STOP_FOREGROUND_REMOVE
-                )
-
-                stopSelf()
-            }
-
-        }.also {
-            it.start()
-        }
-    }
-
-    private fun stopAudio() {
-        running = false
-        audioThread?.interrupt()
-        audioThread = null
-    }
+    private fun notification(): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Tone Stepper")
+            .setContentText("Riproduzione audio attiva")
+            .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
+            .setOngoing(true)
+            .build()
 
     private fun createNotificationChannel() {
-
-        if (Build.VERSION.SDK_INT >= 26) {
-
-            val channel =
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Riproduzione Tone Stepper",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-
-            channel.description =
-                "Mantiene Tone Stepper attivo in background"
-
-            val manager =
-                getSystemService(
-                    NotificationManager::class.java
-                )
-
-            manager.createNotificationChannel(
-                channel
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Tone Stepper audio",
+                NotificationManager.IMPORTANCE_LOW
             )
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    private fun playAudio() {
+        val minBytes = AudioTrack.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_OUT_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBytes <= 0) {
+            stopSelf()
+            return
+        }
+
+        val bufferSamples = maxOf(1024, minBytes / 2)
+        val buffer = ShortArray(bufferSamples + bufferSamples % 2)
+
+        val format = AudioFormat.Builder()
+            .setSampleRate(SAMPLE_RATE)
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+            .build()
+
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setAudioFormat(format)
+            .setBufferSizeInBytes(buffer.size * 2)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+
+        audioTrack = track
+        track.play()
+
+        var phase = 0.0
+        var noiseState = 0.0
+        var lastNoise = 0.0
+        var pink0 = 0.0
+        var pink1 = 0.0
+        var pink2 = 0.0
+        var pink3 = 0.0
+        var pink4 = 0.0
+        var pink5 = 0.0
+
+        var nextToneAt = System.nanoTime()
+        var toneUntil = 0L
+        var toneFrequency = 15000.0
+        val startedAt = System.nanoTime()
+
+        try {
+            while (running) {
+                val now = System.nanoTime()
+                val durationMin = prefs.getString("duration", "10")
+                    ?.toLongOrNull() ?: 10L
+
+                if (durationMin > 0 &&
+                    now - startedAt >= durationMin * 60_000_000_000L
+                ) break
+
+                val base = prefs.getString("frequency", "15000")
+                    ?.toDoubleOrNull() ?: 15000.0
+                val intervalMs = prefs.getString("interval", "500")
+                    ?.toLongOrNull() ?: 500L
+
+                if (now >= nextToneAt) {
+                    val semitone = Random.nextInt(-2, 3)
+                    toneFrequency = (base * Math.pow(
+                        2.0, semitone / 12.0
+                    )).coerceIn(20.0, 20000.0)
+                    toneUntil = now + 100_000_000L
+                    nextToneAt = now + intervalMs * 1_000_000L
+                }
+
+                val earMode = prefs.getString("earMode", "both") ?: "both"
+                val toneGain = prefs.getInt("toneVolume", 20) / 100.0 * 0.25
+                val noiseGain = prefs.getInt("noiseVolume", 10) / 100.0 * 0.15
+                val noiseMode = prefs.getInt("noiseType", 0)
+                val toneActive = now < toneUntil
+
+                var index = 0
+                while (index + 1 < buffer.size) {
+                    val tone = if (toneActive) {
+                        sin(phase) * toneGain
+                    } else 0.0
+
+                    phase += 2.0 * PI * toneFrequency / SAMPLE_RATE
+                    if (phase >= 2.0 * PI) phase -= 2.0 * PI
+
+                    val white = Random.nextDouble(-1.0, 1.0)
+                    noiseState = 0.98 * noiseState + 0.02 * white
+                    pink0 = 0.99886 * pink0 + white * 0.0555179
+                    pink1 = 0.99332 * pink1 + white * 0.0750759
+                    pink2 = 0.96900 * pink2 + white * 0.1538520
+                    pink3 = 0.86650 * pink3 + white * 0.3104856
+                    pink4 = 0.55 * pink4 + white * 0.5329522
+                    pink5 = -0.7616 * pink5 - white * 0.0168980
+                    val pink = (pink0 + pink1 + pink2 + pink3 + pink4 +
+                        pink5 + white * 0.5362) * 0.11
+                    val noise = when (noiseMode) {
+                        1 -> white
+                        2 -> pink
+                        3 -> noiseState
+                        4 -> white - lastNoise
+                        else -> 0.0
+                    }
+                    lastNoise = white
+
+                    val leftTone = if (earMode != "right") tone else 0.0
+                    val rightTone = if (earMode != "left") tone else 0.0
+                    val left = (leftTone + noise * noiseGain)
+                        .coerceIn(-0.95, 0.95)
+                    val right = (rightTone + noise * noiseGain)
+                        .coerceIn(-0.95, 0.95)
+
+                    buffer[index] = (left * 32767).toInt().toShort()
+                    buffer[index + 1] = (right * 32767).toInt().toShort()
+                    index += 2
+                }
+
+                var written = 0
+                while (written < buffer.size && running) {
+                    val count = track.write(
+                        buffer, written, buffer.size - written
+                    )
+                    if (count <= 0) break
+                    written += count
+                }
+            }
+        } catch (_: Exception) {
+            // Arresto del servizio o uscita audio non disponibile.
+        } finally {
+            running = false
+            try {
+                track.pause()
+                track.flush()
+                track.stop()
+            } catch (_: Exception) {}
+            track.release()
+            audioTrack = null
+            stopSelf()
         }
     }
 
     override fun onDestroy() {
-        stopAudio()
+        running = false
+        try {
+            audioTrack?.pause()
+        } catch (_: Exception) {}
         super.onDestroy()
     }
-
-    override fun onBind(intent: Intent?): IBinder? =
-        null
 }
